@@ -39,3 +39,13 @@ The main functionality is encapsulated in the `PINN_laminar_flow` class, which i
 
 ## Acknowledgments
 Make sure to replace the ellipses (`...`) with the actual parameters and code snippets for your use case. This Markdown structure provides a clear and organized overview of the PINN solver, its usage, and dependencies.
+
+## Python Version
+Please Install Python 3.6 to use this app.
+
+# Modules Installation
+
+To install the required dependencies, run the following command in your terminal or virtual environment:
+
+```bash
+pip install -r requirements.txt
