@@ -105,8 +105,8 @@ class PINN_laminar_flow:
         self.optimizer = tf.contrib.opt.ScipyOptimizerInterface(self.loss,
                                                                 var_list=self.uv_weights + self.uv_biases,
                                                                 method='L-BFGS-B',
-                                                                options={'maxiter': 10,
-                                                                         'maxfun': 100,
+                                                                options={'maxiter': 1,
+                                                                         'maxfun': 1,
                                                                          'maxcor': 50,
                                                                          'maxls': 50,
                                                                          'ftol': 1*np.finfo(float).eps})
@@ -300,13 +300,11 @@ def DelCylPT(XY_c, xc=0.0, yc=0.0, r=0.1):
     dst = np.array([((xy[0] - xc) ** 2 + (xy[1] - yc) ** 2) ** 0.5 for xy in XY_c])
     return XY_c[dst>r,:]
 
-
 def postProcess(xmin, xmax, ymin, ymax, field_FLUENT, field_MIXED, s=2, alpha=0.5, marker='o'):
-
     [x_FLUENT, y_FLUENT, u_FLUENT, v_FLUENT, p_FLUENT] = field_FLUENT
     [x_MIXED, y_MIXED, u_MIXED, v_MIXED, p_MIXED] = field_MIXED
 
-    fig, ax = plt.subplots(nrows=3, ncols=2, figsize=(7, 4))
+    fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(7, 4))
     fig.subplots_adjust(hspace=0.2, wspace=0.2)
 
     # Plot MIXED result
@@ -319,8 +317,6 @@ def postProcess(xmin, xmax, ymin, ymax, field_FLUENT, field_MIXED, s=2, alpha=0.
     ax[0, 0].set_yticks([])
     ax[0, 0].set_xlim([xmin, xmax])
     ax[0, 0].set_ylim([ymin, ymax])
-    # cf.cmap.set_under('whitesmoke')
-    # cf.cmap.set_over('black')
     ax[0, 0].set_title(r'$u$ (m/s)')
     fig.colorbar(cf, ax=ax[0, 0], fraction=0.046, pad=0.04)
 
@@ -333,24 +329,8 @@ def postProcess(xmin, xmax, ymin, ymax, field_FLUENT, field_MIXED, s=2, alpha=0.
     ax[1, 0].set_yticks([])
     ax[1, 0].set_xlim([xmin, xmax])
     ax[1, 0].set_ylim([ymin, ymax])
-    # cf.cmap.set_under('whitesmoke')
-    # cf.cmap.set_over('black')
     ax[1, 0].set_title(r'$v$ (m/s)')
     fig.colorbar(cf, ax=ax[1, 0], fraction=0.046, pad=0.04)
-
-    cf = ax[2, 0].scatter(x_MIXED, y_MIXED, c=p_MIXED, alpha=alpha, edgecolors='none', cmap='rainbow', marker=marker, s=int(s), vmin=-0.25, vmax=4.0)
-    ax[2, 0].axis('square')
-    for key, spine in ax[2, 0].spines.items():
-        if key in ['right','top','left','bottom']:
-            spine.set_visible(False)
-    ax[2, 0].set_xticks([])
-    ax[2, 0].set_yticks([])
-    ax[2, 0].set_xlim([xmin, xmax])
-    ax[2, 0].set_ylim([ymin, ymax])
-    # cf.cmap.set_under('whitesmoke')
-    # cf.cmap.set_over('black')
-    ax[2, 0].set_title('Pressure (Pa)')
-    fig.colorbar(cf, ax=ax[2, 0], fraction=0.046, pad=0.04)
 
     # Plot FLUENT result
     cf = ax[0, 1].scatter(x_FLUENT, y_FLUENT, c=u_FLUENT, alpha=alpha, edgecolors='none', cmap='rainbow', marker=marker, s=s)
@@ -362,8 +342,6 @@ def postProcess(xmin, xmax, ymin, ymax, field_FLUENT, field_MIXED, s=2, alpha=0.
     ax[0, 1].set_yticks([])
     ax[0, 1].set_xlim([xmin, xmax])
     ax[0, 1].set_ylim([ymin, ymax])
-    # cf.cmap.set_under('whitesmoke')
-    # cf.cmap.set_over('black')
     ax[0, 1].set_title(r'$u$ (m/s)')
     fig.colorbar(cf, ax=ax[0, 1], fraction=0.046, pad=0.04)
 
@@ -376,26 +354,10 @@ def postProcess(xmin, xmax, ymin, ymax, field_FLUENT, field_MIXED, s=2, alpha=0.
     ax[1, 1].set_yticks([])
     ax[1, 1].set_xlim([xmin, xmax])
     ax[1, 1].set_ylim([ymin, ymax])
-    # cf.cmap.set_under('whitesmoke')
-    # cf.cmap.set_over('black')
     ax[1, 1].set_title(r'$v$ (m/s)')
     fig.colorbar(cf, ax=ax[1, 1], fraction=0.046, pad=0.04)
 
-    cf = ax[2, 1].scatter(x_FLUENT, y_FLUENT, c=p_FLUENT, alpha=alpha, edgecolors='none', cmap='rainbow', marker=marker, s=s, vmin=-0.25, vmax=4.0)
-    ax[2, 1].axis('square')
-    for key, spine in ax[2, 1].spines.items():
-        if key in ['right','top','left','bottom']:
-            spine.set_visible(False)
-    ax[2, 1].set_xticks([])
-    ax[2, 1].set_yticks([])
-    ax[2, 1].set_xlim([xmin, xmax])
-    ax[2, 1].set_ylim([ymin, ymax])
-    # cf.cmap.set_under('whitesmoke')
-    # cf.cmap.set_over('black')
-    ax[2, 1].set_title('Pressure (Pa)')
-    fig.colorbar(cf, ax=ax[2, 1], fraction=0.046, pad=0.04)
-
-    plt.savefig('./uvp.png', dpi=300)
+    plt.savefig('./uv.png', dpi=300)
     plt.close('all')
 
 def preprocess(dir='FenicsSol.mat'):
@@ -526,7 +488,7 @@ if __name__ == "__main__":
         model = PINN_laminar_flow(XY_c, INLET, OUTLET, WALL, uv_layers, lb, ub, ExistModel = 1, uvDir = 'Pinn/uvNN.pickle')
 
         start_time = time.time()
-        loss_WALL, loss_INLET, loss_OUTLET, loss_f, loss = model.train(iter=100, learning_rate=5e-4)
+        loss_WALL, loss_INLET, loss_OUTLET, loss_f, loss = model.train(iter=1, learning_rate=5e-4)
         model.train_bfgs()
         print("--- %s seconds ---" % (time.time() - start_time))
 
