@@ -105,8 +105,8 @@ class PINN_laminar_flow:
         self.optimizer = tf.contrib.opt.ScipyOptimizerInterface(self.loss,
                                                                 var_list=self.uv_weights + self.uv_biases,
                                                                 method='L-BFGS-B',
-                                                                options={'maxiter': 1,
-                                                                         'maxfun': 1,
+                                                                options={'maxiter': 10,
+                                                                         'maxfun': 10,
                                                                          'maxcor': 50,
                                                                          'maxls': 50,
                                                                          'ftol': 1*np.finfo(float).eps})
@@ -122,21 +122,14 @@ class PINN_laminar_flow:
         self.sess.run(init)
 
     def initialize_NN(self, layers):
-        weights = []
-        biases = []
-        num_layers = len(layers)
-        for l in range(0, num_layers - 1):
-            W = self.xavier_init(size=[layers[l], layers[l + 1]])
-            b = tf.Variable(tf.zeros([1, layers[l + 1]], dtype=tf.float32), dtype=tf.float32)
-            weights.append(W)
-            biases.append(b)
+        weights = [tf.Variable(tf.random.normal([layers[l], layers[l + 1]], dtype=tf.float32)) for l in range(len(layers) - 1)]
+        biases = [tf.Variable(tf.zeros([1, layers[l + 1]], dtype=tf.float32), dtype=tf.float32) for l in range(len(layers) - 1)]
         return weights, biases
 
     def xavier_init(self, size):
-        in_dim = size[0]
-        out_dim = size[1]
+        in_dim, out_dim = size
         xavier_stddev = np.sqrt(2 / (in_dim + out_dim))
-        return tf.Variable(tf.truncated_normal([in_dim, out_dim], stddev=xavier_stddev, dtype=tf.float32), dtype=tf.float32)
+        return tf.Variable(tf.random.truncated_normal([in_dim, out_dim], stddev=xavier_stddev, dtype=tf.float32), dtype=tf.float32)
 
 
     def save_NN(self, fileDir):
@@ -152,18 +145,20 @@ class PINN_laminar_flow:
         weights = []
         biases = []
         num_layers = len(layers)
-        with open(fileDir, 'rb') as f:
-            uv_weights, uv_biases = pickle.load(f)
 
-            # Stored model must has the same # of layers
-            assert num_layers == (len(uv_weights)+1)
+        with open(fileDir, 'rb') as file:
+            saved_weights, saved_biases = pickle.load(file)
 
-            for num in range(0, num_layers - 1):
-                W = tf.Variable(uv_weights[num], dtype=tf.float32)
-                b = tf.Variable(uv_biases[num], dtype=tf.float32)
-                weights.append(W)
-                biases.append(b)
-                print(" - Load NN parameters successfully...")
+            # Asegurarse de que el modelo almacenado tiene el mismo número de capas
+            assert num_layers == len(saved_weights) + 1
+
+            for num, (saved_weight, saved_bias) in enumerate(zip(saved_weights, saved_biases)):
+                weight = tf.Variable(saved_weight, dtype=tf.float32)
+                bias = tf.Variable(saved_bias, dtype=tf.float32)
+                weights.append(weight)
+                biases.append(bias)
+                print(f" - Parámetros de la NN para la capa {num + 1} cargados exitosamente.")
+
         return weights, biases
 
     def neural_net(self, X, weights, biases):
@@ -226,39 +221,48 @@ class PINN_laminar_flow:
     def callback(self, loss):
         self.count = self.count+1
         self.loss_rec.append(loss)
-        print('{} th iterations, Loss: {}'.format(self.count, loss))
+        print(f"🚀 ¡Iteración {self.count} completada! Pérdida actual: {loss:.6f} 🎉")
 
 
     def train(self, iter, learning_rate):
 
-        tf_dict = {self.x_c_tf: self.x_c, self.y_c_tf: self.y_c,
-                   self.x_WALL_tf: self.x_WALL, self.y_WALL_tf: self.y_WALL,
-                   self.x_INLET_tf: self.x_INLET, self.y_INLET_tf: self.y_INLET, self.u_INLET_tf: self.u_INLET, self.v_INLET_tf: self.v_INLET,
-                   self.x_OUTLET_tf: self.x_OUTLET, self.y_OUTLET_tf: self.y_OUTLET,
-                   self.learning_rate: learning_rate}
+        tf_dict = {
+        self.x_c_tf: self.x_c,
+        self.y_c_tf: self.y_c,
+        self.x_WALL_tf: self.x_WALL,
+        self.y_WALL_tf: self.y_WALL,
+        self.x_INLET_tf: self.x_INLET,
+        self.y_INLET_tf: self.y_INLET,
+        self.u_INLET_tf: self.u_INLET,
+        self.v_INLET_tf: self.v_INLET,
+        self.x_OUTLET_tf: self.x_OUTLET,
+        self.y_OUTLET_tf: self.y_OUTLET,
+        self.learning_rate: learning_rate
+        }
 
-        loss_WALL = []
-        loss_f = []
-        loss_INLET = []
-        loss_OUTLET = []
+        loss_records = {
+            "WALL": [],
+            "INLET": [],
+            "OUTLET": [],
+            "f": []
+        }
 
-        for it in range(iter):
-
+        for iteration in range(iter):
             self.sess.run(self.train_op_Adam, tf_dict)
 
-            # Print
-            if it % 10 == 0:
-                loss_value = self.sess.run(self.loss, tf_dict)
-                print('It: %d, Loss: %.3e' %
-                      (it, loss_value))
+            # Print every 10 iterations
+            if iteration % 10 == 0:
+                current_loss = self.sess.run(self.loss, tf_dict)
+                print(f"🚀 ¡Iteración {iteration} completada! Pérdida actual: {current_loss:.6f} 🎉")
 
-            loss_WALL.append(self.sess.run(self.loss_WALL, tf_dict))
-            loss_f.append(self.sess.run(self.loss_f, tf_dict))
-            self.loss_rec.append(self.sess.run(self.loss, tf_dict))
-            loss_INLET.append(self.sess.run(self.loss_INLET, tf_dict))
-            loss_OUTLET.append(self.sess.run(self.loss_OUTLET, tf_dict))
+            loss_records["WALL"].append(self.sess.run(self.loss_WALL, tf_dict))
+            loss_records["INLET"].append(self.sess.run(self.loss_INLET, tf_dict))
+            loss_records["OUTLET"].append(self.sess.run(self.loss_OUTLET, tf_dict))
+            loss_records["f"].append(self.sess.run(self.loss_f, tf_dict))
 
-        return loss_WALL, loss_INLET, loss_OUTLET, loss_f, self.loss
+        self.loss_rec.extend(self.sess.run(self.loss, tf_dict) for _ in range(iter))
+
+        return loss_records["WALL"], loss_records["INLET"], loss_records["OUTLET"], loss_records["f"], self.loss_rec
 
     def train_bfgs(self):
 
@@ -273,25 +277,34 @@ class PINN_laminar_flow:
                                 loss_callback=self.callback)
 
     def predict(self, x_star, y_star):
-        u_star = self.sess.run(self.u_pred, {self.x_tf: x_star, self.y_tf: y_star})
-        v_star = self.sess.run(self.v_pred, {self.x_tf: x_star, self.y_tf: y_star})
-        p_star = self.sess.run(self.p_pred, {self.x_tf: x_star, self.y_tf: y_star})
+        feed_dict = {self.x_tf: x_star, self.y_tf: y_star}
+        u_star, v_star, p_star = self.sess.run([self.u_pred, self.v_pred, self.p_pred], feed_dict)
         return u_star, v_star, p_star
 
-    def getloss(self):
+    def get_loss(self):
+        tf_dict = {
+            self.x_c_tf: self.x_c, 
+            self.y_c_tf: self.y_c,
+            self.x_WALL_tf: self.x_WALL, 
+            self.y_WALL_tf: self.y_WALL,
+            self.x_INLET_tf: self.x_INLET, 
+            self.y_INLET_tf: self.y_INLET, 
+            self.u_INLET_tf: self.u_INLET, 
+            self.v_INLET_tf: self.v_INLET,
+            self.x_OUTLET_tf: self.x_OUTLET, 
+            self.y_OUTLET_tf: self.y_OUTLET
+        }
 
-        tf_dict = {self.x_c_tf: self.x_c, self.y_c_tf: self.y_c,
-                   self.x_WALL_tf: self.x_WALL, self.y_WALL_tf: self.y_WALL,
-                   self.x_INLET_tf: self.x_INLET, self.y_INLET_tf: self.y_INLET, self.u_INLET_tf: self.u_INLET, self.v_INLET_tf: self.v_INLET,
-                   self.x_OUTLET_tf: self.x_OUTLET, self.y_OUTLET_tf: self.y_OUTLET}
+        loss_records = {
+            "WALL": self.sess.run(self.loss_WALL, tf_dict),
+            "INLET": self.sess.run(self.loss_INLET, tf_dict),
+            "OUTLET": self.sess.run(self.loss_OUTLET, tf_dict),
+            "f": self.sess.run(self.loss_f, tf_dict),
+            "total": self.sess.run(self.loss, tf_dict)
+        }
 
-        loss_f = self.sess.run(self.loss_f, tf_dict)
-        loss_WALL = self.sess.run(self.loss_WALL, tf_dict)
-        loss_INLET = self.sess.run(self.loss_INLET, tf_dict)
-        loss = self.sess.run(self.loss, tf_dict)
-        loss_OUTLET = self.sess.run(self.loss_OUTLET, tf_dict)
+        return loss_records["WALL"], loss_records["INLET"], loss_records["OUTLET"], loss_records["f"], loss_records["total"]
 
-        return loss_WALL, loss_INLET, loss_OUTLET, loss_f, loss
 
 def DelCylPT(XY_c, xc=0.0, yc=0.0, r=0.1):
     '''
@@ -300,65 +313,36 @@ def DelCylPT(XY_c, xc=0.0, yc=0.0, r=0.1):
     dst = np.array([((xy[0] - xc) ** 2 + (xy[1] - yc) ** 2) ** 0.5 for xy in XY_c])
     return XY_c[dst>r,:]
 
-def postProcess(xmin, xmax, ymin, ymax, field_FLUENT, field_MIXED, s=2, alpha=0.5, marker='o'):
-    [x_FLUENT, y_FLUENT, u_FLUENT, v_FLUENT, p_FLUENT] = field_FLUENT
-    [x_MIXED, y_MIXED, u_MIXED, v_MIXED, p_MIXED] = field_MIXED
+def postProcess(xmin, xmax, ymin, ymax, fF, fM, s=2, alpha=0.5, marker='o'):
+    [xf, yf, uif, vf, _] = fF
+    [xM, yM, uM, vM, _] = fM
 
     fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(7, 4))
     fig.subplots_adjust(hspace=0.2, wspace=0.2)
 
     # Plot MIXED result
-    cf = ax[0, 0].scatter(x_MIXED, y_MIXED, c=u_MIXED, alpha=alpha-0.1, edgecolors='none', cmap='rainbow', marker=marker, s=int(s))
-    ax[0, 0].axis('square')
-    for key, spine in ax[0, 0].spines.items():
-        if key in ['right','top','left','bottom']:
-            spine.set_visible(False)
-    ax[0, 0].set_xticks([])
-    ax[0, 0].set_yticks([])
-    ax[0, 0].set_xlim([xmin, xmax])
-    ax[0, 0].set_ylim([ymin, ymax])
-    ax[0, 0].set_title(r'$u$ (m/s)')
-    fig.colorbar(cf, ax=ax[0, 0], fraction=0.046, pad=0.04)
-
-    cf = ax[1, 0].scatter(x_MIXED, y_MIXED, c=v_MIXED, alpha=alpha-0.1, edgecolors='none', cmap='rainbow', marker=marker, s=int(s))
-    ax[1, 0].axis('square')
-    for key, spine in ax[1, 0].spines.items():
-        if key in ['right','top','left','bottom']:
-            spine.set_visible(False)
-    ax[1, 0].set_xticks([])
-    ax[1, 0].set_yticks([])
-    ax[1, 0].set_xlim([xmin, xmax])
-    ax[1, 0].set_ylim([ymin, ymax])
-    ax[1, 0].set_title(r'$v$ (m/s)')
-    fig.colorbar(cf, ax=ax[1, 0], fraction=0.046, pad=0.04)
+    plot_scatter(ax[0, 0], xM, yM, uM, r'$u$ (m/s)', xmin, xmax, ymin, ymax, s, alpha, marker)
+    plot_scatter(ax[1, 0], xM, yM, vM, r'$v$ (m/s)', xmin, xmax, ymin, ymax, s, alpha, marker)
 
     # Plot FLUENT result
-    cf = ax[0, 1].scatter(x_FLUENT, y_FLUENT, c=u_FLUENT, alpha=alpha, edgecolors='none', cmap='rainbow', marker=marker, s=s)
-    ax[0, 1].axis('square')
-    for key, spine in ax[0, 1].spines.items():
-        if key in ['right','top','left','bottom']:
-            spine.set_visible(False)
-    ax[0, 1].set_xticks([])
-    ax[0, 1].set_yticks([])
-    ax[0, 1].set_xlim([xmin, xmax])
-    ax[0, 1].set_ylim([ymin, ymax])
-    ax[0, 1].set_title(r'$u$ (m/s)')
-    fig.colorbar(cf, ax=ax[0, 1], fraction=0.046, pad=0.04)
-
-    cf = ax[1, 1].scatter(x_FLUENT, y_FLUENT, c=v_FLUENT, alpha=alpha, edgecolors='none', cmap='rainbow', marker=marker, s=s)
-    ax[1, 1].axis('square')
-    for key, spine in ax[1, 1].spines.items():
-        if key in ['right','top','left','bottom']:
-            spine.set_visible(False)
-    ax[1, 1].set_xticks([])
-    ax[1, 1].set_yticks([])
-    ax[1, 1].set_xlim([xmin, xmax])
-    ax[1, 1].set_ylim([ymin, ymax])
-    ax[1, 1].set_title(r'$v$ (m/s)')
-    fig.colorbar(cf, ax=ax[1, 1], fraction=0.046, pad=0.04)
+    plot_scatter(ax[0, 1], xf, yf, uif, r'$u$ (m/s)', xmin, xmax, ymin, ymax, s, alpha, marker)
+    plot_scatter(ax[1, 1], xf, yf, vf, r'$v$ (m/s)', xmin, xmax, ymin, ymax, s, alpha, marker)
 
     plt.savefig('./uv.png', dpi=300)
     plt.close('all')
+
+def plot_scatter(ax, x, y, data, title, xmin, xmax, ymin, ymax, s, alpha, marker):
+    cf = ax.scatter(x, y, c=data, alpha=alpha-0.1, edgecolors='none', cmap='viridis', marker=marker, s=int(s))
+    ax.axis('square')
+    for key, spine in ax.spines.items():
+        if key in ['right', 'top', 'left', 'bottom']:
+            spine.set_visible(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlim([xmin, xmax])
+    ax.set_ylim([ymin, ymax])
+    ax.set_title(title)
+    ax.figure.colorbar(cf, ax=ax, fraction=0.046, pad=0.04)
 
 def preprocess(dir='FenicsSol.mat'):
     '''
@@ -381,32 +365,35 @@ def preprocess(dir='FenicsSol.mat'):
     return x_star, y_star, vx_star, vy_star, p_star
 
 def multiple_formatter(denominator=2, number=np.pi, latex='\pi'):
-    def gcd(a, b):
+    def greatest_common_divisor(a, b):
         while b:
-            a, b = b, a%b
+            a, b = b, a % b
         return a
-    def _multiple_formatter(x, pos):
+    
+    def _custom_formatter(x, pos):
         den = denominator
-        num = np.int(np.rint(den*x/number))
-        com = gcd(num,den)
-        (num,den) = (int(num/com),int(den/com))
-        if den==1:
-            if num==0:
+        num = np.int(np.rint(den * x / number))
+        com = greatest_common_divisor(num, den)
+        (num, den) = (int(num / com), int(den / com))
+        
+        if den == 1:
+            if num == 0:
                 return r'$0$'
-            if num==1:
-                return r'$%s$'%latex
-            elif num==-1:
-                return r'$-%s$'%latex
+            if num == 1:
+                return r'$%s$' % latex
+            elif num == -1:
+                return r'$-%s$' % latex
             else:
-                return r'$%s%s$'%(num,latex)
+                return r'$%s%s$' % (num, latex)
         else:
-            if num==1:
-                return r'$\frac{%s}{%s}$'%(latex,den)
-            elif num==-1:
-                return r'$\frac{-%s}{%s}$'%(latex,den)
+            if num == 1:
+                return r'$\frac{%s}{%s}$' % (latex, den)
+            elif num == -1:
+                return r'$\frac{-%s}{%s}$' % (latex, den)
             else:
-                return r'$\frac{%s%s}{%s}$'%(num,latex,den)
-    return _multiple_formatter
+                return r'$\frac{%s%s}{%s}$' % (num, latex, den)
+    
+    return _custom_formatter
 
 class Multiple:
     def __init__(self, denominator=2, number=np.pi, latex='\pi'):
@@ -423,47 +410,44 @@ class Multiple:
 
 if __name__ == "__main__":
 
-    # Domain bounds
+    # Definición de límites del dominio
     lb = np.array([0, 0])
     ub = np.array([1.1, 0.41])
 
-    # Network configuration
+    # Configuración de la red neuronal
     uv_layers = [2] + 8*[40] + [5]
 
-    # WALL = [x, y], u=v=0
+    # Pared = [x, y], u=v=0
     wall_up = [0.0, 0.41] + [1.1, 0.0] * lhs(2, 441)
     wall_lw = [0.0, 0.00] + [1.1, 0.0] * lhs(2, 441)
 
-    # INLET = [x, y, u, v]
+    # Entrada = [x, y, u, v]
     U_max = 1.0
     INLET = [0.0, 0.0] + [0.0, 0.41] * lhs(2, 201)
-    y_INLET = INLET[:,1:2]
-    u_INLET = 4*U_max*y_INLET*(0.41-y_INLET)/(0.41**2)
-    v_INLET = 0*y_INLET
-    INLET = np.concatenate((INLET, u_INLET, v_INLET), 1)
+    yInlet = INLET[:, 1:2]
+    uInlet = 4 * U_max * yInlet * (0.41 - yInlet) / (0.41**2)
+    vInlet = 0 * yInlet
+    INLET = np.concatenate((INLET, uInlet, vInlet), 1)
 
-    # plt.scatter(INLET[:, 1:2], INLET[:, 2:3], marker='o', alpha=0.2, color='red')
-    # plt.show()
-
-    # INLET = [x, y], p=0
+    # Salida = [x, y], p=0
     OUTLET = [1.1, 0.0] + [0.0, 0.41] * lhs(2, 201)
 
-    # Cylinder surface
+    # Superficie del cilindro
     r = 0.05
-    theta = [0.0] + [2*np.pi] * lhs(1, 251)
-    x_CYLD = np.multiply(r, np.cos(theta))+0.2
-    y_CYLD = np.multiply(r, np.sin(theta))+0.2
+    theta = [0.0] + [2 * np.pi] * lhs(1, 251)
+    x_CYLD = np.multiply(r, np.cos(theta)) + 0.2
+    y_CYLD = np.multiply(r, np.sin(theta)) + 0.2
     CYLD = np.concatenate((x_CYLD, y_CYLD), 1)
 
     WALL = np.concatenate((CYLD, wall_up, wall_lw), 0)
 
-    # Collocation point for equation residual
+    # Puntos de colocación para el residual de la ecuación
     XY_c = lb + (ub - lb) * lhs(2, 40000)
     XY_c_refine = [0.1, 0.1] + [0.2, 0.2] * lhs(2, 10000)
     XY_c = np.concatenate((XY_c, XY_c_refine), 0)
     XY_c = DelCylPT(XY_c, xc=0.2, yc=0.2, r=0.05)
 
-    XY_c = np.concatenate((XY_c, WALL, CYLD, OUTLET, INLET[:,0:2]), 0)
+    XY_c = np.concatenate((XY_c, WALL, CYLD, OUTLET, INLET[:, 0:2]), 0)
 
     print(XY_c.shape)
 
@@ -481,41 +465,36 @@ if __name__ == "__main__":
         config.gpu_options.allow_growth = True
         session = tf.Session(config=config)
 
-        # Train from scratch
+        # Inicialización y carga del modelo
         # model = PINN_laminar_flow(XY_c, INLET, OUTLET, WALL, uv_layers, lb, ub)
+        model = PINN_laminar_flow(XY_c, INLET, OUTLET, WALL, uv_layers, lb, ub, ExistModel=1, uvDir='Pinn/uvNN.pickle')
 
-        # Load trained neural network
-        model = PINN_laminar_flow(XY_c, INLET, OUTLET, WALL, uv_layers, lb, ub, ExistModel = 1, uvDir = 'Pinn/uvNN.pickle')
-
+        # Entrenamiento del modelo
         start_time = time.time()
         loss_WALL, loss_INLET, loss_OUTLET, loss_f, loss = model.train(iter=1, learning_rate=5e-4)
         model.train_bfgs()
-        print("--- %s seconds ---" % (time.time() - start_time))
+        elapsed_time = time.time() - start_time
+        print(f"Entrenamiento completado en {elapsed_time:.2f} segundos")
 
-        # Save neural network
+        # Guardar el modelo y el historial de pérdidas
         model.save_NN('../uvNN.pickle')
-
-        # Save loss history
         with open('loss_history.pickle', 'wb') as f:
             pickle.dump(model.loss_rec, f)
 
-        # Load fluent result
-        [x_FLUENT, y_FLUENT, u_FLUENT, v_FLUENT, p_FLUENT] = preprocess(dir='ReferenceMat/FluentSol.mat')
-        field_FLUENT = [x_FLUENT, y_FLUENT, u_FLUENT, v_FLUENT, p_FLUENT]
+    # Cargar resultados de Fluent
+    [xf, yf, uf, vf, pf] = preprocess(dir='ReferenceMat/FluentSol.mat')
+    fF = [xf, yf, uf, vf, pf]
 
-        # Get mixed-form PINN prediction
-        x_PINN = np.linspace(0, 1.1, 251)
-        y_PINN = np.linspace(0, 0.41, 101)
-        x_PINN, y_PINN = np.meshgrid(x_PINN, y_PINN)
-        x_PINN = x_PINN.flatten()[:, None]
-        y_PINN = y_PINN.flatten()[:, None]
-        dst = ((x_PINN-0.2)**2+(y_PINN-0.2)**2)**0.5
-        x_PINN = x_PINN[dst >= 0.05]
-        y_PINN = y_PINN[dst >= 0.05]
-        x_PINN = x_PINN.flatten()[:, None]
-        y_PINN = y_PINN.flatten()[:, None]
-        u_PINN, v_PINN, p_PINN = model.predict(x_PINN, y_PINN)
-        field_MIXED = [x_PINN, y_PINN, u_PINN, v_PINN, p_PINN]
+    # Obtener predicción de PINN en forma mixta
+    xpinn = np.linspace(0, 1.1, 251)
+    ypinn = np.linspace(0, 0.41, 101)
+    xpinn, ypinn = np.meshgrid(xpinn, ypinn)
+    xpinn, ypinn = xpinn.flatten()[:, None], ypinn.flatten()[:, None]
+    dst = ((xpinn-0.2)**2 + (ypinn-0.2)**2)**0.5
+    xpinn, ypinn = xpinn[dst >= 0.05], ypinn[dst >= 0.05]
+    xpinn, ypinn = xpinn.flatten()[:, None], ypinn.flatten()[:, None]
+    upinn, vpinn, ppinn = model.predict(xpinn, ypinn)
+    fM = [xpinn, ypinn, upinn, vpinn, ppinn]
 
-        # Plot the comparison of u, v, p
-        postProcess(xmin=0, xmax=1.1, ymin=0, ymax=0.41, field_FLUENT=field_FLUENT, field_MIXED=field_MIXED, s=3, alpha=0.5)
+    # Comparación y visualización de u, v, p
+    postProcess(xmin=0, xmax=1.1, ymin=0, ymax=0.41, fF=fF, fM=fM, s=3, alpha=0.5)
